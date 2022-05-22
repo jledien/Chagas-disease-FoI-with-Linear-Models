@@ -1,0 +1,483 @@
+---
+title: "Final Model selection and bootstrap FOI posterior LR"
+author: "Julia Ledien"
+date: "2 January 2020"
+output: html_document
+---
+
+```{r}
+
+library(mgcv)
+library(microbenchmark)
+library(Rcpp)
+library(RcppArmadillo)
+library(RcppEigen)
+library(dplyr)
+
+# C:\Users\pn211\Dropbox (SPH Imperial College)\chagas-ML\data\Chagas Disease\FOI_final\best
+
+```
+
+
+
+#Step 1 model selection
+```{r}
+# FoI_ADM2 <-readRDS ("../../../../../Data preparation/ContFoI_Median_ADM2Covariates_2020_ADM2only_Final")
+
+# FoI_ADM2 <-readRDS ("Rdata/COL_Best_Continuous_Model_FullPost_FoI_1000it_ADM2only.RDS")
+FoI_ADM2 <- readRDS ("Rdata/COL_MNormal_Model_predictors_ADM2only.RDS")
+Obs_dist_foi <- readRDS('Rdata/COL_FoI_1000it_MNormal_Model_ADM2only.RDS')
+# Obs_dist_foi <- readRDS('Rdata/COL_FoI_1000it_MNormal_Model.RDS')
+names(FoI_ADM2)[1] <- 'dataset_id'
+
+year_id1 <- paste0(FoI_ADM2$year,'-',FoI_ADM2$dataset_id) 
+year_id2 <- paste0(Obs_dist_foi$year,'-',Obs_dist_foi$dataset_id) 
+
+re_order <-match(year_id1,year_id2)
+Obs_dist_foi <- Obs_dist_foi[re_order,]
+sum(Obs_dist_foi$year==FoI_ADM2$year)
+
+Obs_dist_foi <- as.matrix(Obs_dist_foi[,1:1000])
+# Obs_dist_foi$year[1:10]
+# FoI_ADM2$year[1:10]
+
+sumfoi <- apply(Obs_dist_foi,1,quantile,c(.5,.025))
+f <- which(FoI_ADM2$dataset_id %in% unique(FoI_ADM2$dataset_id)[2])
+plot(FoI_ADM2$year[f],sumfoi[1,f])
+
+# f <- which(FoI_ADM2$dataset_id %in% 'COL-008-01')
+# unique(FoI_ADM2$zone)
+# FoI_ADM2$zone[f] <- 'indigenous'
+# FoI_ADM2$IndiZone[f] <- 1
+
+f <- which(FoI_ADM2$tSur < 1980)
+
+# eliminate
+FoI_ADM2 <- FoI_ADM2[-f,] 
+Obs_dist_foi <- Obs_dist_foi[-f,] 
+```
+
+```{r}
+length(unique(FoI_ADM2$dataset_id))
+
+n <- as.numeric(dim(FoI_ADM2)[1])
+length(unique(FoI_ADM2$GID_2))
+length(unique(FoI_ADM2$dataset_id))
+length(unique(FoI_ADM2$year))
+range(unique(FoI_ADM2$year))
+
+
+FoI_t <- apply(Obs_dist_foi,1,median)
+logFoI_t <- log(FoI_t)
+
+
+FoI_ADM2$FoI_Med <- FoI_t
+FoI_ADM2$logFoIMed <- logFoI_t
+
+# table(FoI_ADM2$ADM2,FoI_ADM2$year)
+# table(FoI_ADM2$dataset_id)
+# aa <- FoI_ADM2[which(FoI_ADM2$ADM2 %in% 'Cubar?'),]
+# aa <- FoI_ADM2[which(FoI_ADM2$dataset_id %in% 'COL_109'),]
+
+```
+
+```{r}
+
+#models
+m1 <-"year + tSur + zone + lat+ bu_seroprevalence  + PolarFreq + TropicalFreq + RprolixusAMD2Prop + TdimidiatasADM1 + Intervention + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + lon "
+m2 <-"year + tSur + zone + lat  + PolarFreq + TropicalFreq + RprolixusAMD2Prop + TdimidiatasADM1 + Intervention + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + lon "
+m3 <-"year + tSur + zone + lat+ bu_seroprevalence   + TropicalFreq + RprolixusAMD2Prop + TdimidiatasADM1 + Intervention + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + lon "
+m4 <-"year + tSur + zone + lat+ bu_seroprevalence  + PolarFreq  + RprolixusAMD2Prop + TdimidiatasADM1 + Intervention + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + lon "
+m5 <-"year + tSur + zone + lat+ bu_seroprevalence  + PolarFreq + TropicalFreq + TdimidiatasADM1 + Intervention + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + lon "
+m6<-"year + tSur + zone + lat+ bu_seroprevalence  + PolarFreq + TropicalFreq + RprolixusAMD2Prop  + Intervention + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + lon "
+m7 <-"year + tSur + zone + lat+ bu_seroprevalence  + PolarFreq + TropicalFreq + RprolixusAMD2Prop + TdimidiatasADM1 +  RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + lon "
+m8<-"year + tSur + zone + lat+ bu_seroprevalence  + PolarFreq + TropicalFreq + RprolixusAMD2Prop + TdimidiatasADM1 + Intervention  + TempPopDensity + TempHouseholdDef  + lon"
+m9<-"year + tSur + zone + lat+ bu_seroprevalence  + PolarFreq + TropicalFreq + RprolixusAMD2Prop + TdimidiatasADM1 + Intervention + RuralIndigenousPopSize2005  + TempHouseholdDef  + lon "
+m10 <-"year + tSur + zone + lat+ bu_seroprevalence  + PolarFreq + TropicalFreq + RprolixusAMD2Prop + TdimidiatasADM1 + Intervention + RuralIndigenousPopSize2005 + TempPopDensity   + lon "
+m11<-"year + tSur + zone + lat+ bu_seroprevalence  + PolarFreq + TropicalFreq + RprolixusAMD2Prop + TdimidiatasADM1 + Intervention + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef "
+
+m12 <-"year + tSur + zone + lat+ bu_seroprevalence  + PolarFreq  + RprolixusAMD2Prop + TdimidiatasADM1 + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + lon "
+m13 <-"year + tSur + zone + lat+ bu_seroprevalence  + PolarFreq  + RprolixusAMD2Prop + TdimidiatasADM1 + Intervention  + TempPopDensity + TempHouseholdDef  + lon "
+m14 <-"year + tSur + zone + lat+ bu_seroprevalence  + PolarFreq  + RprolixusAMD2Prop + TdimidiatasADM1 + Intervention + RuralIndigenousPopSize2005 + TempHouseholdDef  + lon "
+m15 <-"year + tSur + zone + lat+ bu_seroprevalence  + PolarFreq + RprolixusAMD2Prop + TdimidiatasADM1 + Intervention + RuralIndigenousPopSize2005 + TempPopDensity   + lon "
+m16 <-"year + tSur + zone + lat+ bu_seroprevalence  + PolarFreq  + RprolixusAMD2Prop + TdimidiatasADM1 + Intervention + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  "
+m17 <-"year + tSur + zone + lat+ bu_seroprevalence  + PolarFreq + TropicalFreq + RprolixusAMD2Prop + TdimidiatasADM1 + Intervention +  TempHouseholdDef  + lon "
+m18 <-"year + tSur + zone + lat+ bu_seroprevalence  + PolarFreq + TropicalFreq + RprolixusAMD2Prop + TdimidiatasADM1 + Intervention +  TempPopDensity  + lon "
+m19 <-"year + tSur + zone + lat+ bu_seroprevalence  + PolarFreq + TropicalFreq + RprolixusAMD2Prop + TdimidiatasADM1 + Intervention +  TempPopDensity + TempHouseholdDef   "
+m20 <-"year + tSur + zone + lat+ bu_seroprevalence  + PolarFreq + TropicalFreq + RprolixusAMD2Prop +  Intervention +  TempPopDensity + TempHouseholdDef  + lon "
+m21 <-"year + tSur + zone + lat+ bu_seroprevalence  + PolarFreq + TropicalFreq + RprolixusAMD2Prop + TdimidiatasADM1 +   TempPopDensity + TempHouseholdDef  + lon "
+m22 <-"year + tSur + zone + lat+ bu_seroprevalence  + PolarFreq + TropicalFreq + RprolixusAMD2Prop + TdimidiatasADM1 + Intervention +   TempHouseholdDef  + lon "
+m23 <-"year + tSur + zone + lat+ bu_seroprevalence  + PolarFreq + TropicalFreq + RprolixusAMD2Prop + TdimidiatasADM1 + Intervention + RuralIndigenousPopSize2005   + lon "
+m24<-"year + tSur + zone + lat+ bu_seroprevalence  + PolarFreq + TropicalFreq + RprolixusAMD2Prop + TdimidiatasADM1 + Intervention + RuralIndigenousPopSize2005  + TempHouseholdDef  "
+m25<-"year + tSur + zone + lat+ bu_seroprevalence  + PolarFreq + TropicalFreq + RprolixusAMD2Prop + TdimidiatasADM1  + RuralIndigenousPopSize2005+ TempHouseholdDef  + lon "
+m26<-"year + tSur + zone + lat+ bu_seroprevalence  + PolarFreq + TropicalFreq + RprolixusAMD2Prop  + Intervention + RuralIndigenousPopSize2005  + TempHouseholdDef  + lon "
+
+m27 <-"year + tSur + zone + lat+ bu_seroprevalence  + PolarFreq  + RprolixusAMD2Prop + TdimidiatasADM1 + Intervention + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef   "
+m28 <-"year + tSur + zone + lat+ bu_seroprevalence  + PolarFreq  + RprolixusAMD2Prop + TdimidiatasADM1 + Intervention + RuralIndigenousPopSize2005 + TempPopDensity   "
+m29 <-"year + tSur + zone + lat+ bu_seroprevalence  + PolarFreq  + RprolixusAMD2Prop + TdimidiatasADM1 + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef   "
+m30<-"year + tSur + zone + lat+ bu_seroprevalence  + PolarFreq  + RprolixusAMD2Prop + TdimidiatasADM1 + Intervention + RuralIndigenousPopSize2005 + TempHouseholdDef   "
+m31 <-"year + tSur + zone + lat+ bu_seroprevalence  + PolarFreq + TropicalFreq + RprolixusAMD2Prop + TdimidiatasADM1 + Intervention + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + lon +RprolixusAMD2Prop:lon"
+m32 <-"year + tSur + zone + lat+ bu_seroprevalence  + PolarFreq + TropicalFreq + RprolixusAMD2Prop + TdimidiatasADM1 + Intervention + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + lon +   TdimidiataAMD2Prop:Intervention"
+m33<-"year + tSur + zone "
+m34 <-" tSur + zone + lat+ bu_seroprevalence  + PolarFreq + TropicalFreq + RprolixusAMD2Prop + TdimidiatasADM1 + Intervention + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + lon  + decade"
+m35 <-"year + tSur + zone + lat+ bu_seroprevalence  + PolarFreq + TropicalFreq + RprolixusAMD2Prop + TdimidiatasADM1 + Intervention + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + lon +RprolixusAMD2Prop:lon +bu_seroprevalence:decade"
+m36 <-"year + tSur + zone + lat+ bu_seroprevalence  + PolarFreq + TropicalFreq + RprolixusAMD2Prop + TdimidiatasADM1 + Intervention + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + lon+ TdimidiataAMD2Prop:Intervention + bu_seroprevalence:decade "
+m37 <-"year + tSur + zone + lat+ bu_seroprevalence  + PolarFreq + TropicalFreq + RprolixusAMD2Prop + TdimidiatasADM1 + Intervention + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + lon+ RprolixusAMD2Prop:lon+ TdimidiataAMD2Prop:Intervention + bu_seroprevalence:decade "
+m38 <-"year + tSur + zone + lat+ bu_seroprevalence  + PolarFreq  + RprolixusAMD2Prop + TdimidiatasADM1 + Intervention + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef   +RprolixusAMD2Prop:lon"
+m39 <-"year + tSur + zone + lat+ bu_seroprevalence  + PolarFreq  + RprolixusAMD2Prop + TdimidiatasADM1 + Intervention + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  +   TdimidiataAMD2Prop:Intervention"
+m40 <-"year + tSur + zone + lat+ bu_seroprevalence  + PolarFreq  + RprolixusAMD2Prop + TdimidiatasADM1 + Intervention + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + bu_seroprevalence:decade "
+m41 <-"year + tSur + zone + lat+ bu_seroprevalence  + PolarFreq + RprolixusAMD2Prop + TdimidiatasADM1 + Intervention + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + RprolixusAMD2Prop:lon +   TdimidiataAMD2Prop:Intervention"
+m42 <-"year + tSur + zone + lat+ bu_seroprevalence  + PolarFreq + RprolixusAMD2Prop + TdimidiatasADM1 + Intervention + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  +RprolixusAMD2Prop:lon +bu_seroprevalence:decade"
+m43 <-"year + tSur + zone + lat+ bu_seroprevalence  + PolarFreq  + RprolixusAMD2Prop + TdimidiatasADM1 + Intervention + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef + TdimidiataAMD2Prop:Intervention + bu_seroprevalence:decade "
+m44 <-"year + tSur + zone + lat+ bu_seroprevalence  + PolarFreq  + RprolixusAMD2Prop + TdimidiatasADM1 + Intervention + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef + RprolixusAMD2Prop:lon+ TdimidiataAMD2Prop:Intervention + bu_seroprevalence:decade "
+m45 <-"year + tSur + zone + lat+ bu_seroprevalence   + RprolixusAMD2Prop"
+m46 <-"year + tSur + zone + lat+ BloodScreened  + PolarFreq + TropicalFreq + RprolixusAMD2Prop + TdimidiatasADM1 + Intervention + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + lon+ RprolixusAMD2Prop:lon+ TdimidiataAMD2Prop:Intervention + bu_seroprevalence:decade "
+m47 <-"year + tSur + zone + lat + bu_seroprevalence  + PolarFreq  + RprolixusAMD2Prop + TdimidiatasADM1 + Intervention + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + lon+ RprolixusAMD2Prop:lon+ TdimidiataAMD2Prop:Intervention + bu_seroprevalence:decade "
+m48 <-"year + tSur + zone + lat+ bu_seroprevalence  + TropicalFreq + RprolixusAMD2Prop + TdimidiatasADM1 + Intervention + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + lon+ RprolixusAMD2Prop:lon+ TdimidiataAMD2Prop:Intervention + bu_seroprevalence:decade "
+m49 <-"year + tSur + zone + lat+ bu_seroprevalence  + PolarFreq + TropicalFreq + RprolixusAMD2Prop + TdimidiatasADM1  + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + lon+ RprolixusAMD2Prop:lon+ TdimidiataAMD2Prop:Intervention + bu_seroprevalence:decade "
+m50 <-"year + tSur + zone + lat+ bu_seroprevalence  + PolarFreq + TropicalFreq + RprolixusAMD2Prop + TdimidiatasADM1 + Intervention + RuralIndigenousPopSize2005  + TempHouseholdDef  + lon+ RprolixusAMD2Prop:lon+ TdimidiataAMD2Prop:Intervention + bu_seroprevalence:decade "
+m51 <-"year + tSur + zone + lat+ bu_seroprevalence  + PolarFreq + TropicalFreq + RprolixusAMD2Prop + TdimidiatasADM1 + Intervention + RuralIndigenousPopSize2005 + TempPopDensity   + lon+ RprolixusAMD2Prop:lon+ TdimidiataAMD2Prop:Intervention + bu_seroprevalence:decade "
+m52 <-"year + tSur + zone + lat+ bu_seroprevalence  + PolarFreq + TropicalFreq + RprolixusAMD2Prop + TdimidiatasADM1 + Intervention + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  +  RprolixusAMD2Prop:lon+ TdimidiataAMD2Prop:Intervention + bu_seroprevalence:decade "
+m53 <-"year + tSur + zone + lat+ bu_seroprevalence   + TropicalFreq + RprolixusAMD2Prop + TdimidiatasADM1 + Intervention + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  +  RprolixusAMD2Prop:lon+ TdimidiataAMD2Prop:Intervention + bu_seroprevalence:decade "
+m54 <-"tSur + zone + lat "
+m55 <-"year +tSur + zone + lat "
+m56 <-"tSur + zone + lat +decade"
+m57 <-"tSur + zone + lat + bu_seroprevalence "
+m58 <-"tSur + zone + lat + TropicalFreq "
+m59 <-"tSur + zone + lat  + PolarFreq "
+m60 <-"tSur + zone + lat + RprolixusAMD2Prop"
+m61 <-"tSur + zone + lat + TdimidiatasADM1"
+m62 <-"tSur + zone + lat + TdimidiataAMD2Prop"
+m63 <-"tSur + zone + lat + Intervention"
+m64 <-"tSur + zone + lat + TempPopDensity"
+m65 <-"tSur + zone + lat + RuralIndigenousPopSize2005"
+m66 <-"tSur + zone + lat + TempHouseholdDef"
+m67 <-"tSur + zone + lat + RprolixusAMD2Prop:lon"
+m68 <-"tSur + zone + lat + TdimidiataAMD2Prop:Intervention"
+m69 <-"tSur + zone + lat + bu_seroprevalence:decade"
+m70 <-"tSur + zone + lat + PolarFreq + RprolixusAMD2Prop:lon"
+m71 <- "tSur + zone + lat + TdimidiatasADM1 + bu_seroprevalence:TempPopDensity"
+m72 <-"year + tSur + zone + lat+ bu_seroprevalence  + PolarFreq  + RprolixusAMD2Prop + TdimidiatasADM1 + InterventionIntensity + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + bu_seroprevalence:decade"
+m73 <- "year + tSur + zone + lat + bu_seroprevalence  + PolarFreq  + InterventionIntensity+ TempHouseholdDef"
+m74 <- "year + tSur + zone + lat + PolarFreq  + InterventionIntensity+ TempHouseholdDef"
+m75 <-"year + tSur + zone + lat+ bu_seroprevalence  + TropicalFreq + RprolixusAMD2Prop + TdimidiatasADM1 + InterventionIntensity + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + lon+ RprolixusAMD2Prop:lon+ TdimidiataAMD2Prop:Intervention + bu_seroprevalence:decade "
+  m76 <- "year + tSur + zone + lat+ bu_seroprevalence  + PolarFreq + TropicalClimate + InterventionIntensity + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + lon "
+  m77 <- "year + tSur + zone + lat+ bu_seroprevalence  + PolarFreq + TropicalClimate + Intervention + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  "
+  m78 <- "year + tSur + zone + lat+ bu_seroprevalence  + PolarFreq + TropicalClimate + Intervention + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef + TropicalClimate:TempPopDensity"
+  m79 <- "year + tSur + zone + lat+ bu_seroprevalence  + PolarFreq + TropicalClimate + Intervention +  TempPopDensity + TempHouseholdDef + TropicalClimate:TempPopDensity"
+  m80 <- "year + tSur + zone + lat+ bu_seroprevalence  + PolarFreq + TropicalClimate + Intervention +  TempHouseholdDef + TropicalClimate:TempPopDensity"
+  m81 <- "year + tSur + zone + lat+ bu_seroprevalence * TropicalClimate + PolarFreq + Intervention +  TempHouseholdDef "
+  m82 <- "year + tSur + zone + lat+ bu_seroprevalence * TropicalClimate + PolarFreq + Intervention +  TempHouseholdDef +  TempPopDensity "
+  m83 <- "year + tSur + zone + lat+ bu_seroprevalence  + PolarFreq:TropicalFreq + Intervention +  TempHouseholdDef :  TempPopDensity "
+  m84 <- "year + tSur + zone + lat+ bu_seroprevalence * TropicalClimate + PolarFreq + Intervention +  TempHouseholdDef +  TempPopDensity + TropicalClimate:Intervention"
+  m85 <- "year + tSur + zone + lat+ bu_seroprevalence * TropicalClimate + PolarFreq + Intervention +  TempHouseholdDef +  TempPopDensity + TropicalClimate:lon"
+  m86 <- "year + tSur + zone + lat+ bu_seroprevalence * TropicalClimate + PolarFreq + Intervention + RuralIndigenousPopSize2005 + TempHouseholdDef +  TempPopDensity + TropicalClimate:Intervention"
+  m87 <- "year + tSur + zone + lat+ bu_seroprevalence * TropicalClimate + TropicalFreq + Intervention + RuralIndigenousPopSize2005 + TempHouseholdDef +  TempPopDensity + TropicalClimate:Intervention"
+  m88 <- "year + tSur + zone + lat+ bu_seroprevalence + PolarFreq:TropicalFreq + Intervention + RuralIndigenousPopSize2005 + TempHouseholdDef +  TempPopDensity + TropicalClimate:Intervention"
+  m89 <- "year + tSur + zone + lat+ bu_seroprevalence * TropicalClimate + PolarFreq + Intervention + RuralIndigenousPopSize2005 + TempHouseholdDef +  TempPopDensity + TropicalClimate:Intervention + bu_seroprevalence:decade "
+  m90 <-"year + tSur + zone + lat+ bu_seroprevalence  + TropicalFreq + TemperateFreq + AridFreq + Intervention + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + lon+ TemperateFreq:lon+ AridFreq:Intervention + bu_seroprevalence:decade "
+  m91 <-"year + tSur + zone + lat+ bu_seroprevalence  + TropicalFreq + TemperateFreq + TdimidiatasADM1 + Intervention + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + lon+ TemperateFreq:lon+ AridFreq:Intervention + bu_seroprevalence:decade "
+  m92 <-"year + tSur + zone + lat+ bu_seroprevalence  + TropicalFreq + PolarClimatePresence + TdimidiatasADM1 + Intervention + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + lon+ TemperateFreq:lon+ AridFreq:Intervention + bu_seroprevalence:decade "
+  m93 <- "year + tSur + zone + lat+ bu_seroprevalence * TropicalClimate + TdimidiatasADM1 + PolarFreq + Intervention + RuralIndigenousPopSize2005 + TempHouseholdDef +  TempPopDensity + TropicalClimate:Intervention"
+  m94 <- "year + tSur + zone + lat+ bu_seroprevalence * TemperateFreq + TdimidiatasADM1 + PolarFreq + Intervention + RuralIndigenousPopSize2005 + TempHouseholdDef +  TempPopDensity + TropicalClimate:Intervention"
+  m95 <-"year + tSur + zone + lat+ bu_seroprevalence * TemperateFreq + TropicalFreq  + TdimidiatasADM1 + Intervention + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + lon+ TemperateFreq:lon+ AridFreq:Intervention + bu_seroprevalence:decade "
+  m96 <-"year + tSur + zone + lat+ bu_seroprevalence  + PolarFreq + TemperateFreq + TdimidiatasADM1 + Intervention + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + TemperateFreq:lon+ AridFreq:Intervention + bu_seroprevalence:decade "
+  m97 <-"year + tSur + zone + lat+ bu_seroprevalence  + PolarFreq  + TemperateFreq + TdimidiatasADM1 + Intervention + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + bu_seroprevalence:decade "
+  m98 <-"year + tSur + zone + lat+ bu_seroprevalence * TemperateFreq + TropicalFreq  + TdimidiatasADM1 + Intervention + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + TemperateFreq:lon+ AridFreq:Intervention + bu_seroprevalence:decade "
+  m99 <-"year + tSur + zone + lat+ bu_seroprevalence * TemperateFreq + TropicalFreq:PolarFreq  + TdimidiatasADM1 + Intervention + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + TemperateFreq:lon+ AridFreq:Intervention + bu_seroprevalence:decade "
+  m100 <-"year + tSur + zone + lat+ bu_seroprevalence * TemperateFreq + PolarFreq  + TdimidiatasADM1 + Intervention + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + TemperateFreq:lon+ AridFreq:Intervention + bu_seroprevalence:decade "
+  m101 <-"year + tSur + zone + lat+ bu_seroprevalence * TemperateFreq +  TempPopDensity :TempHouseholdDef + AridFreq:Intervention"
+  m102 <-"year + tSur + zone + lat+ bu_seroprevalence * TemperateFreq +  TempPopDensity :TempHouseholdDef + AridFreq:InterventionIntensity"
+  m103 <-"year + tSur + zone + lat+ bu_seroprevalence * TemperateFreq + TempHouseholdDef "
+  m104 <-"year + tSur + zone + lat+ bu_seroprevalence * TropicalClimate + TempHouseholdDef "
+  m105 <-"year + tSur + zone + lat+ bu_seroprevalence * PolarClimatePresence + TropicalFreq  + TdimidiatasADM1 + Intervention + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + lon+ TemperateFreq:lon+ AridFreq:Intervention + bu_seroprevalence:decade "
+  m106 <-"tSur + zone + lat + bu_seroprevalence * TropicalClimate"
+  m107 <-"tSur + zone + lat + bu_seroprevalence * TropicalClimate + TempHouseholdDef"
+  m108 <-"year + tSur + zone + lat+ bu_seroprevalence * TropicalClimate  + PolarFreq   + InterventionIntensity + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  "
+  m109 <-"year + tSur + zone + lat+ bu_seroprevalence  + PolarFreq  + TemperateFreq + TdimidiatasADM1 + InterventionIntensity + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + bu_seroprevalence:decade"
+m110 <-"year + tSur + zone + lat+ bu_seroprevalence  + PolarFreq  + RprolixusAMD2Prop + TdimidiatasADM1 + HouseInterv + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + bu_seroprevalence:decade"
+m111 <-"year + tSur + zone + lat+ bu_seroprevalence  + PolarFreq  + RprolixusAMD2Prop + TdimidiatasADM1 + HouseInterv + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef + BloodScreened + bu_seroprevalence:decade"
+m112 <-"year + tSur + zone + lat+ bu_seroprevalence  + PolarFreq  + RprolixusAMD2Prop + TdimidiatasADM1 + HouseInterv + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef + BloodScreened + BloodScreened:decade"
+m113 <-"year + tSur + zone + lat+ bu_seroprevalence  + PolarFreq  + RprolixusAMD2Prop + TdimidiatasADM1 + HouseInterv + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + BloodScreened:decade"
+m114 <-"year + tSur + zone + lat+ BloodScreened  + PolarFreq  + RprolixusAMD2Prop + TdimidiatasADM1 + HouseInterv + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + bu_seroprevalence:decade"
+m115 <-"year + tSur + IndiZone + UrbZone + lat+ bu_seroprevalence  + PolarFreq  + RprolixusAMD2Prop + TdimidiatasADM1 + InterventionIntensity + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + bu_seroprevalence:decade"
+m116 <-"year + tSur + IndiZone +  lat+ bu_seroprevalence  + PolarFreq  + RprolixusAMD2Prop + TdimidiatasADM1 + InterventionIntensity + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + bu_seroprevalence:decade"
+m117 <-"year + tSur + IndiZone + UrbZone + lat+ bu_seroprevalence  + PolarFreq  + RprolixusAMD2Prop + TdimidiatasADM1 + HouseInterv + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + bu_seroprevalence:decade"
+m118 <-"year + tSur + + IndiZone + UrbZone + lat+ bu_seroprevalence  + PolarFreq  + RprolixusAMD2Prop + TdimidiatasADM1 + HouseInterv + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef + BloodScreened + bu_seroprevalence:decade"
+  m119 <-"year + tSur +  IndiZone + UrbZone + lat+ bu_seroprevalence  + TropicalFreq + TemperateFreq + TdimidiatasADM1 + HouseInterv + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + lon+ TemperateFreq:lon+ AridFreq:Intervention + bu_seroprevalence:decade "
+m120 <-"year + tSur + IndiZone + UrbZone+ lat+ bu_seroprevalence  + PolarFreq  + RprolixusAMD2Prop + TdimidiatasADM1 + HouseInterv + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef   +RprolixusAMD2Prop:lon"
+  m121 <-"tSur + zone + lat + BloodScreened * TropicalClimate + TempHouseholdDef"
+m122 <-"year + tSur + IndiZone + UrbZone + lat+ BloodScreened  + PolarFreq  + RprolixusAMD2Prop + TdimidiatasADM1 + HouseInterv + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + bu_seroprevalence:decade"
+  m123  <-"year + tSur + IndiZone + UrbZone + lat+ BloodScreened  + PolarFreq  + TemperateFreq + TdimidiatasADM1 + HouseInterv + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + bu_seroprevalence:decade"
+  m124  <-"year + tSur + IndiZone + UrbZone + lat+ BloodScreened  + PolarFreq  + TemperateFreq + TdimidiatasADM1 + HouseInterv + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + bu_seroprevalence:decade + AridFreq:HouseInterv "
+m125 <-"year + tSur + IndiZone + UrbZone + lat+ BloodScreened  + TropicalFreq  + RprolixusAMD2Prop + TdimidiatasADM1 + HouseInterv + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + bu_seroprevalence:decade + bu_seroprevalence:RprolixusAMD2Prop"
+m126 <-"year + tSur + zone + lat+ BloodScreened  + TropicalFreq  + RprolixusAMD2Prop + TdimidiatasADM1 + HouseInterv + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + bu_seroprevalence:decade + bu_seroprevalence:RprolixusAMD2Prop"
+m127 <-"year + tSur + IndiZone + UrbZone + lat+ BloodScreened  + TropicalFreq  + RprolixusAMD2Prop + TdimidiatasADM1 + HouseInterv + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + bu_seroprevalence:decade + BloodScreened:RprolixusAMD2Prop"
+m128 <-"year + tSur + IndiZone + UrbZone + lat+ BloodScreened  + TropicalFreq  + RprolixusAMD2Prop + TdimidiatasADM1 * HouseInterv + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + bu_seroprevalence:decade + bu_seroprevalence:RprolixusAMD2Prop  "
+m129 <-"year + tSur + IndiZone + UrbZone + lat+ BloodScreened  + PolarFreq  + RprolixusAMD2Prop + TdimidiatasADM1 + HouseInterv + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + bu_seroprevalence:decade + BloodScreened:RprolixusAMD2Prop"
+m130 <-"year + tSur + IndiZone + UrbZone + lat+ BloodScreened  + PolarFreq  + RprolixusAMD2Prop +  HouseInterv + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + bu_seroprevalence:decade + BloodScreened:RprolixusAMD2Prop"
+m131 <-"year + tSur + IndiZone + UrbZone + lat+ BloodScreened  + PolarFreq  + RprolixusAMD2Prop +  Intervention  +RuralIndigenousPopSize2005+ TempPopDensity + TempHouseholdDef  + bu_seroprevalence:decade + BloodScreened:RprolixusAMD2Prop"
+m132 <-"year + tSur + IndiZone + UrbZone + lat+ BloodScreened  + PolarFreq  + RprolixusAMD2Prop +  InterventionIntensity  +RuralIndigenousPopSize2005+ TempPopDensity + TempHouseholdDef  + bu_seroprevalence:decade + BloodScreened:RprolixusAMD2Prop"
+  m133 <-"year + tSur + zone + lat+ BloodScreened * TemperateFreq + TropicalFreq  + TdimidiatasADM1 + Intervention + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + TemperateFreq:lon+ AridFreq:Intervention + bu_seroprevalence:decade "
+  m134 <-"year + tSur + zone + lat+ BloodScreened * TemperateFreq + PolarFreq  + TdimidiatasADM1 + Intervention + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + TemperateFreq:lon+ AridFreq:Intervention + bu_seroprevalence:decade "
+m135 <-"year + tSur + IndiZone + UrbZone + lat+ BloodScreened  + PolarFreq  + RprolixusAMD2Prop + TdimidiatasADM1 + HouseIntervClass + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + bu_seroprevalence:decade + BloodScreened:RprolixusAMD2Prop"
+  m136 <-"year + tSur + zone + lat+ bu_seroprevalence * TemperateFreq + TropicalFreq  + TdimidiatasADM1 + HouseIntervClass + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + TemperateFreq:lon+ AridFreq:Intervention + bu_seroprevalence:decade "
+m137 <-"year + tSur + IndiZone + UrbZone + lat+ BloodScreened  + TropicalFreq  + RprolixusAMD2Prop + TdimidiatasADM1 + HouseIntervClass + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + bu_seroprevalence:decade + BloodScreened:RprolixusAMD2Prop"
+m138 <-"year + tSur + zone + lat+ BloodScreened  + PolarFreq + TropicalFreq + RprolixusAMD2Prop + TdimidiatasADM1 + HouseIntervClass + RuralIndigenousPopSize2005  + TempHouseholdDef  + lon+ RprolixusAMD2Prop:lon+ TdimidiataAMD2Prop:HouseIntervClass + bu_seroprevalence:decade "
+  m139 <- "year + tSur + zone + lat+ bu_seroprevalence * TemperateFreq + TropicalFreq  + TdimidiatasADM1 + HouseIntervClass + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + TemperateFreq:lon+ AridFreq:HouseIntervClass + bu_seroprevalence:decade "
+  m140<-"year + tSur + zone + lat+ bu_seroprevalence * TemperateFreq + TropicalFreq  + TdimidiatasADM1 + HouseIntervClass + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + TemperateFreq:lon+ AridFreq:HouseInterv + bu_seroprevalence:decade "
+  m141<-"year + tSur + zone + lat+ bu_seroprevalence * TemperateFreq + TropicalFreq  + TdimidiatasADM1 + HouseIntervClass + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + TemperateFreq:lon+ AridFreq:InterventionIntensity + bu_seroprevalence:decade "
+  m142<-"year + tSur + zone + lat+ BloodScreened * TemperateFreq + TropicalFreq  + TdimidiatasADM1 + HouseIntervClass + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + TemperateFreq:lon+  bu_seroprevalence:decade "
+  m143<-"year + tSur + zone + lat+ BloodScreened * TemperateFreq + TropicalFreq: PolarFreq + TdimidiatasADM1 + HouseIntervClass + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + AridFreq:InterventionIntensity + bu_seroprevalence:decade"
+m144<-"year + tSur + IndiZone + UrbZone + lat+ BloodScreened  + PolarFreq  + RprolixusAMD2Prop +  HouseIntervClass + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + bu_seroprevalence:decade + BloodScreened:RprolixusAMD2Prop"
+m145<-"year + tSur + IndiZone + UrbZone + lat+ BloodScreened  + PolarFreq  + RprolixusAMD2Prop +  HouseIntervClass + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + bu_seroprevalence:decade + BloodScreened:RprolixusAMD2Prop +TdimidiataAMD2Prop:HouseIntervClass "
+m146<-"year + tSur + IndiZone + UrbZone + lat+ BloodScreened  + PolarFreq  + RprolixusAMD2Prop +  HouseInterv + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + bu_seroprevalence:decade + BloodScreened:RprolixusAMD2Prop +  RprolixusAMD2Prop:lon + TdimidiatasADM1:HouseIntervClass"
+m147<-"year + tSur + zone + lat+ BloodScreened  + PolarFreq  + RprolixusAMD2Prop +  HouseIntervClass + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + bu_seroprevalence:decade + BloodScreened:RprolixusAMD2Prop"
+m148<-"year + tSur + zone + lat+ BloodScreened  + PolarFreq  + RprolixusAMD2Prop +  HouseInterv + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + bu_seroprevalence:decade + BloodScreened:RprolixusAMD2Prop + TdimidiatasADM1:HouseInterv"
+m149<-"year + tSur +zone + lat+ BloodScreened  + PolarFreq  + RprolixusAMD2Prop +  HouseInterv + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + bu_seroprevalence:decade + bu_seroprevalence:RprolixusAMD2Prop"
+m150<-"year + tSur + zone + lat+ BloodScreened  + PolarFreq:TropicalFreq  + RprolixusAMD2Prop +  HouseInterv + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + bu_seroprevalence:decade + BloodScreened:RprolixusAMD2Prop "
+m151<-"year + tSur + zone + lat+ BloodScreened  + TropicalFreq  + RprolixusAMD2Prop +  HouseInterv + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + bu_seroprevalence:decade + BloodScreened:RprolixusAMD2Prop"
+m152<-"year + tSur + IndiZone + UrbZone + lat+ BloodScreened  + PolarFreq  + RprolixusAMD2Prop +  HouseInterv + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + bu_seroprevalence:decade + BloodScreened:RprolixusAMD2Prop + TdimidiataAMD2Prop:HouseInterv"
+m153<-"year + tSur + IndiZone + UrbZone + lat+ BloodScreened  + PolarFreq  + RprolixusAMD2Prop +  HouseIntervClass + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + bu_seroprevalence:decade + BloodScreened:RprolixusAMD2Prop + TdimidiataAMD2Prop:HouseInterv"
+m154<-"year + tSur + IndiZone + UrbZone + lat+ BloodScreened  + PolarFreq  + RprolixusAMD2Prop +  InterventionIntensity + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + bu_seroprevalence:decade + BloodScreened:RprolixusAMD2Prop"
+m155<-"year + tSur + IndiZone + UrbZone + lat+ BloodScreened  + PolarFreq  + RprolixusAMD2Prop +  InterventionIntensity + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + bu_seroprevalence:decade + BloodScreened:RprolixusAMD2Prop + TdimidiataAMD2Prop:InterventionIntensity"
+m156 <-"year + tSur + IndiZone + UrbZone + lat+ BloodScreened  + TropicalClimate  + RprolixusAMD2Prop + TdimidiatasADM1 + HouseInterv + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + bu_seroprevalence:decade + BloodScreened:RprolixusAMD2Prop"
+m157<- "year + tSur + zone + lat + bu_seroprevalence  + PolarFreq + TropicalClimate + RprolixusAMD2Prop + TdimidiatasADM1 + Intervention + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + lon+ RprolixusAMD2Prop:lon+ TdimidiataAMD2Prop:Intervention + bu_seroprevalence:decade "
+m158<- "year + tSur + zone + lat+ BloodScreened  + PolarFreq + TropicalClimate + RprolixusAMD2Prop + TdimidiatasADM1 + HouseIntervClass + RuralIndigenousPopSize2005  + TempHouseholdDef  + lon+ RprolixusAMD2Prop:lon+ TdimidiataAMD2Prop:HouseIntervClass + bu_seroprevalence:decade "
+m159<- "year + tSur + zone + lat + BloodScreened  + PolarFreq  + RprolixusAMD2Prop + TdimidiatasADM1 + Intervention + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + lon+ RprolixusAMD2Prop:lon+ TdimidiataAMD2Prop:Intervention + bu_seroprevalence:decade "
+m160<- "year + tSur + zone + lat + bu_seroprevalence  + PolarFreq  + RprolixusAMD2Prop + TdimidiatasADM1 + HouseIntervClass + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + lon+ RprolixusAMD2Prop:lon+ TdimidiataAMD2Prop:HouseIntervClass + bu_seroprevalence:decade "
+m161<- "year + tSur + zone + lat + BloodScreened  + PolarFreq  + RprolixusAMD2Prop + TdimidiatasADM1 + HouseIntervClass + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + lon+ RprolixusAMD2Prop:lon+ TdimidiataAMD2Prop:HouseIntervClass + bu_seroprevalence:decade "
+m162<- "year + tSur + zone + lat + BloodScreened  + PolarFreq  + RprolixusAMD2Prop + TdimidiatasADM1 + HouseIntervClass + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + lon+ RprolixusAMD2Prop:lon+ TdimidiataAMD2Prop:HouseInterv + bu_seroprevalence:decade "
+m163<-  "year + tSur + zone + lat + bu_seroprevalence  + PolarFreq  + RprolixusAMD2Prop + TdimidiatasADM1 + HouseIntervClass + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + lon+ RprolixusAMD2Prop:lon+ TdimidiataAMD2Prop:HouseInterv + bu_seroprevalence:decade "
+m164<- "year + tSur + zone + lat + BloodScreened  + PolarFreq  + TropicalClimate + RprolixusAMD2Prop + TdimidiatasADM1 + HouseIntervClass +  TempHouseholdDef  + lon+ RprolixusAMD2Prop:lon+ TdimidiataAMD2Prop:HouseInterv + bu_seroprevalence:decade "
+m165<- "year + tSur + zone + lat + BloodScreened  + PolarFreq  + TropicalClimate + RprolixusAMD2Prop +  HouseIntervClass + RuralIndigenousPopSize2005 +  TempHouseholdDef  + lon+ RprolixusAMD2Prop:lon+ TdimidiataAMD2Prop:HouseInterv + bu_seroprevalence:decade "
+m166<- "year + tSur + zone + lat + BloodScreened  + PolarFreq  + TropicalClimate + RprolixusAMD2Prop + TdimidiatasADM1 + HouseIntervClass + RuralIndigenousPopSize2005 +  TempHouseholdDef + RprolixusAMD2Prop:lon+ TdimidiataAMD2Prop:HouseInterv + bu_seroprevalence:decade "
+
+m167<- "year + tSur + zone + lat+ BloodScreened  + PolarFreq + TropicalClimate + ADM2_Rprolixus_Presence + ADM2_Tdimidiata_Presence + HouseIntervClass + RuralIndigenousPopSize2005  + TempHouseholdDef  + lon+ ADM2_Rprolixus_Presence:lon+ ADM2_Tdimidiata_Presence:HouseIntervClass + bu_seroprevalence:decade "
+m168<- "year + tSur + zone + lat+ BloodScreened  + PolarFreq + TropicalClimate + ADM2_Rprolixus_Presence + ADM2_Tdimidiata_Presence + HouseIntervClass + RuralIndigenousPopSize2005  + TempHouseholdDef  +  ADM2_Tdimidiata_Presence:HouseIntervClass + bu_seroprevalence:decade "
+m169<- "year + tSur + zone + lat+ BloodScreened  + PolarFreq + TropicalClimate + ADM2_Rprolixus_Presence + ADM2_Tdimidiata_Presence + HouseIntervClass +TempPopDensity + TempHouseholdDef  + lon+ ADM2_Rprolixus_Presence:lon+ ADM2_Tdimidiata_Presence:HouseIntervClass + bu_seroprevalence:decade "
+m170<- "year + tSur + IndiZone + lat+ BloodScreened  + PolarFreq + TropicalClimate + ADM2_Rprolixus_Presence + ADM2_Tdimidiata_Presence + HouseIntervClass +TempPopDensity + TempHouseholdDef  + lon+ ADM2_Rprolixus_Presence:lon+ ADM2_Tdimidiata_Presence:HouseIntervClass + bu_seroprevalence:decade "
+m171<- "year + tSur + zone + lat+ BloodScreened  + PolarFreq + TropicalClimate + RprolixusAMD2Prop + ADM2_Tdimidiata_Presence + HouseIntervClass + RuralIndigenousPopSize2005  + TempHouseholdDef  + lon+ RprolixusAMD2Prop:lon+ ADM2_Tdimidiata_Presence:HouseIntervClass + bu_seroprevalence:decade "
+m172<- "year + tSur + zone + lat+ BloodScreened  + PolarFreq + TropicalClimate + RprolixusAMD2Prop + ADM2_Tdimidiata_Presence + HouseIntervClass + RuralIndigenousPopSize2005  + TempHouseholdDef  + lon+ ADM2_Rprolixus_Presence:lon+ ADM2_Tdimidiata_Presence:HouseIntervClass + bu_seroprevalence:decade "
+m173 <-"year + tSur + IndiZone + UrbZone + lat+ BloodScreened  + PolarFreq + TropicalClimate + ADM2_Rprolixus_Presence +  HouseInterv + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + bu_seroprevalence:decade + BloodScreened:RprolixusAMD2Prop"
+m174<- "year + tSur + IndiZone + lat+ BloodScreened  + PolarFreq + TropicalClimate + RprolixusAMD2Prop + ADM2_Tdimidiata_Presence + HouseIntervClass +TempPopDensity + TempHouseholdDef  + lon+ RprolixusAMD2Prop:lon+ ADM2_Tdimidiata_Presence:HouseIntervClass + bu_seroprevalence:decade "
+m175 <-"year + tSur + IndiZone + lat+ BloodScreened  + PolarFreq + TropicalClimate + ADM2_Rprolixus_Presence +  ADM2_Tdimidiata_Presence+ HouseInterv +  TempPopDensity + TempHouseholdDef  + bu_seroprevalence:decade + BloodScreened:RprolixusAMD2Prop"
+m176<- "year + tSur + zone + lat+ BloodScreened  + PolarFreq + TropicalClimate + RprolixusAMD2Prop + TdimidiatasADM1 + HouseIntervClass + RuralIndigenousPopSize2005  + TempHouseholdDef  + lon+ RprolixusAMD2Prop:lon+ ADM2_Tdimidiata_Presence:HouseIntervClass + bu_seroprevalence:decade "
+m177<- "year + tSur + zone + lat+ BloodScreened  + PolarFreq + TropicalClimate + RprolixusAMD2Prop + TdimidiatasADM1 + HouseIntervClass   + TempHouseholdDef  +  RprolixusAMD2Prop:lon+ ADM2_Tdimidiata_Presence:HouseIntervClass + bu_seroprevalence:decade "
+m178<- "year + tSur + zone + lat+ BloodScreened  + PolarFreq + TropicalClimate + RprolixusAMD2Prop + ADM2_Tdimidiata_Presence + HouseIntervClass +TempPopDensity + TempHouseholdDef  + lon+ RprolixusAMD2Prop:lon+ ADM2_Tdimidiata_Presence:HouseIntervClass + bu_seroprevalence:decade "
+m179<- "year + tSur + IndiZone + lat+ BloodScreened  + PolarFreq + TropicalClimate + RprolixusAMD2Prop + ADM2_Tdimidiata_Presence + HouseIntervClass + TempHouseholdDef  + RprolixusAMD2Prop:lon+ ADM2_Tdimidiata_Presence:HouseIntervClass + bu_seroprevalence:decade "
+m180<- "year + tSur + IndiZone + BloodScreened  + PolarFreq + TropicalClimate + RprolixusAMD2Prop + ADM2_Tdimidiata_Presence + HouseIntervClass +TempPopDensity + TempHouseholdDef  + RprolixusAMD2Prop:lon+ ADM2_Tdimidiata_Presence:HouseInterv + bu_seroprevalence:decade "
+m181<- "year + tSur + zone + lat+ BloodScreened  + PolarFreq + TropicalClimate + RprolixusAMD2Prop + TdimidiatasADM1 + HouseIntervClass + RuralIndigenousPopSize2005  + TempHouseholdDef  + lon+ RprolixusAMD2Prop:lon+ ADM2_Tdimidiata_Presence:HouseInterv + bu_seroprevalence:decade "
+m182<- "year + tSur + IndiZone + lat+ BloodScreened  + PolarFreq + TropicalClimate + RprolixusAMD2Prop + TdimidiatasADM1 + HouseIntervClass + RuralIndigenousPopSize2005  + TempHouseholdDef  + lon+ RprolixusAMD2Prop:lon+ ADM2_Tdimidiata_Presence:HouseInterv + bu_seroprevalence:decade "
+m183<- "year + tSur + zone + lat+ BloodScreened  + PolarFreq + TropicalClimate + RprolixusAMD2Prop + TdimidiatasADM1 + HouseIntervClass + RuralIndigenousPopSize2005  + TempHouseholdDef  +  RprolixusAMD2Prop:lon+ ADM2_Tdimidiata_Presence:HouseInterv + bu_seroprevalence:decade "
+m184<- "year + tSur + zone + lat+ BloodScreened  + PolarFreq + TropicalClimate + RprolixusAMD2Prop + TdimidiatasADM1 + HouseIntervClass   + TempHouseholdDef  + lon+ RprolixusAMD2Prop:lon+ ADM2_Tdimidiata_Presence:HouseInterv + bu_seroprevalence:decade "
+m185<- "year + tSur + zone + lat+ BloodScreened  + PolarFreq:AridFreq + TropicalClimate + RprolixusAMD2Prop + TdimidiatasADM1 + HouseIntervClass + RuralIndigenousPopSize2005  + TempHouseholdDef  + lon+ RprolixusAMD2Prop:lon+ ADM2_Tdimidiata_Presence:HouseIntervClass + bu_seroprevalence:decade "
+m186<- "year + tSur + zone + lat+ BloodScreened  + PolarFreq:AridFreq + TropicalClimate + RprolixusAMD2Prop + TdimidiatasADM1 + HouseIntervClass   + TempHouseholdDef  +  RprolixusAMD2Prop:lon+ ADM2_Tdimidiata_Presence:HouseIntervClass + bu_seroprevalence:decade "
+m187<- "year + tSur + zone + lat+ BloodScreened  + PolarFreq:AridFreq + TropicalClimate + RprolixusAMD2Prop + TdimidiatasADM1 + HouseIntervClass + RuralIndigenousPopSize2005  + TempHouseholdDef  + lon+ ADM2_Tdimidiata_Presence:HouseIntervClass + bu_seroprevalence:decade "
+m188<- "year + tSur + zone + lat+ BloodScreened  + PolarFreq:AridFreq + TropicalClimate + RprolixusAMD2Prop + TdimidiatasADM1 + HouseIntervClass   + TempHouseholdDef  +   ADM2_Tdimidiata_Presence:HouseIntervClass + bu_seroprevalence:decade "
+
+m189<- "year + tSur + zone + lat+ BloodScreened  + PolarFreq + TropicalClimate + ADM2_Rprolixus_Density + ADM2_Tdimidiata_Presence + HouseIntervClass + RuralIndigenousPopSize2005  + TempHouseholdDef  + lon+ ADM2_Rprolixus_Density:lon+ ADM2_Tdimidiata_Density:HouseIntervClass + bu_seroprevalence:decade "
+m190<- "year + tSur + zone + lat+ BloodScreened  + PolarFreq + TropicalClimate + ADM2_Rprolixus_Density + TdimidiatasADM1 + HouseIntervClass + RuralIndigenousPopSize2005  + TempHouseholdDef  + lon+ ADM2_Rprolixus_Density:lon+ ADM2_Tdimidiata_Density:HouseIntervClass + bu_seroprevalence:decade "
+m191 <-"year + tSur + zone + lat+ BloodScreened  + PolarFreq + TropicalFreq + ADM2_Rprolixus_Density + TdimidiatasADM1 + HouseIntervClass + RuralIndigenousPopSize2005  + TempHouseholdDef  + lon+ ADM2_Rprolixus_Density:lon+ ADM2_Tdimidiata_Density:HouseIntervClass + bu_seroprevalence:decade "
+m192 <-"year + tSur + zone + lat+ BloodScreened  + PolarFreq + TropicalFreq + ADM2_Rprolixus_Density + ADM2_Tdimidiata_Presence + HouseIntervClass + RuralIndigenousPopSize2005  + TempHouseholdDef  + lon+ ADM2_Rprolixus_Density:lon+ ADM2_Tdimidiata_Density:HouseIntervClass + bu_seroprevalence:decade "
+m193<- "year + tSur + zone + lat+ BloodScreened  + PolarFreq:AridFreq + TropicalClimate + ADM2_Rprolixus_Density + TdimidiatasADM1 + HouseIntervClass + RuralIndigenousPopSize2005  + TempHouseholdDef  + lon+ ADM2_Rprolixus_Density:lon+ ADM2_Tdimidiata_Presence:HouseIntervClass + bu_seroprevalence:decade "
+m194<- "year + tSur + zone + lat+ BloodScreened  + PolarFreq:AridFreq + TropicalClimate + ADM2_Rprolixus_Density + TdimidiatasADM1 + HouseIntervClass   + TempHouseholdDef  +  RprolixusAMD2Prop:lon+ ADM2_Tdimidiata_Presence:HouseIntervClass + bu_seroprevalence:decade "
+m195<- "year + tSur + zone + lat+ BloodScreened  + PolarFreq:AridFreq + TropicalClimate + ADM2_Rprolixus_Density + ADM2_Tdimidiata_Presence + HouseIntervClass + RuralIndigenousPopSize2005  + TempHouseholdDef  + lon+ ADM2_Rprolixus_Density:lon+ ADM2_Tdimidiata_Presence:HouseIntervClass + bu_seroprevalence:decade "
+m196<- "year + tSur + zone + lat+ BloodScreened  + PolarFreq:AridFreq + TropicalClimate + ADM2_Rprolixus_Density + ADM2_Tdimidiata_Presence + HouseIntervClass   + TempHouseholdDef  +  RprolixusAMD2Prop:lon+ ADM2_Tdimidiata_Presence:HouseIntervClass + bu_seroprevalence:decade "
+m197 <-"year + tSur + IndiZone + UrbZone + lat+ BloodScreened  + PolarFreq  + ADM2_Rprolixus_Density +  HouseInterv + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + bu_seroprevalence:decade + BloodScreened:ADM2_Rprolixus_Density"
+m198 <-"year + tSur + IndiZone + UrbZone + lat+ BloodScreened  + PolarFreq  + ADM2_Rprolixus_Density + ADM2_Tdimidiata_Presence + HouseIntervClass + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + bu_seroprevalence:decade + BloodScreened:ADM2_Rprolixus_Density"
+m199 <-"year + tSur + IndiZone + UrbZone + lat+ BloodScreened  + TropicalFreq  + ADM2_Rprolixus_Density + ADM2_Tdimidiata_Presence + HouseInterv + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + bu_seroprevalence:decade + bu_seroprevalence:ADM2_Rprolixus_Density"
+m200 <-"year + tSur + IndiZone + UrbZone + lat+ BloodScreened  + TropicalFreq  + ADM2_Rprolixus_Density + ADM2_Tdimidiata_Presence * HouseInterv + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + bu_seroprevalence:decade + bu_seroprevalence:ADM2_Rprolixus_Density  "
+m201<-"year + tSur + IndiZone + UrbZone + lat+ BloodScreened  + PolarFreq  + ADM2_Rprolixus_Density +  HouseIntervClass + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + bu_seroprevalence:decade + BloodScreened:ADM2_Rprolixus_Density +ADM2_Tdimidiata_Density:HouseIntervClass "
+m202<-"year + tSur + IndiZone + UrbZone +  PolarFreq  + TropicalClimate + ADM2_Rprolixus_Density +ADM2_Tdimidiata_Density:HouseIntervClass "
+m203<- "year + tSur + zone + lat+ BloodScreened  + PolarFreq:AridFreq + TropicalClimate + ADM2_Rprolixus_Density + TdimidiatasADM1 + HouseIntervClass   + TempHouseholdDef  +  RprolixusAMD2Prop:lon+ TdimidiatasADM1:HouseIntervClass + bu_seroprevalence:decade "
+m204<- "year + tSur + zone + lat+ BloodScreened  + PolarFreq:AridFreq + TropicalClimate + ADM2_Rprolixus_Density + TdimidiatasADM1 + HouseIntervClass   + TempHouseholdDef  +  ADM2_Rprolixus_Density:lon+ ADM2_Tdimidiata_Presence:HouseIntervClass + bu_seroprevalence:decade "
+m205 <- "year + tSur + zone + lat+ bu_seroprevalence * ADM2_Rprolixus_Density + PolarFreq + Intervention +  TempHouseholdDef +  TempPopDensity + ADM2_Rprolixus_Density:lon"
+m206 <- "year + tSur + zone + lat+ bu_seroprevalence * ADM2_Rprolixus_Density + PolarFreq + HouseIntervClass +  TempHouseholdDef +  TempPopDensity + ADM2_Rprolixus_Density:lon"
+m207 <- "year + tSur + zone + lat+ bu_seroprevalence * ADM2_Rprolixus_Density + PolarFreq + HouseIntervClass +  TempHouseholdDef +   ADM2_Rprolixus_Density:lon"
+m208<- "year + tSur + zone + lat+ BloodScreened  + PolarFreq + TropicalClimate + ADM2_Rprolixus_Density + ADM2_Tdimidiata_Density + HouseIntervClass +TempPopDensity + TempHouseholdDef  + lon+ ADM2_Rprolixus_Presence:lon+ ADM2_Tdimidiata_Presence:HouseIntervClass + bu_seroprevalence:decade "
+m209<- "year + tSur + zone + lat+ BloodScreened  + PolarFreq + TropicalClimate + ADM2_Rprolixus_Density + ADM2_Tdimidiata_Density + HouseIntervClass +TempPopDensity + TempHouseholdDef  + lon+  ADM2_Tdimidiata_Presence:HouseIntervClass + bu_seroprevalence:decade "
+m210<- "year + tSur + zone + lat+ BloodScreened  + PolarFreq + TropicalClimate + ADM2_Rprolixus_Density + ADM2_Tdimidiata_Density + HouseIntervClass +TempPopDensity + TempHouseholdDef  +   ADM2_Tdimidiata_Presence:HouseIntervClass + bu_seroprevalence:decade "
+m211<- "year + tSur + zone + lat+ BloodScreened  + PolarFreq + TropicalClimate + ADM2_Rprolixus_Density + ADM2_Tdimidiata_Density + HouseIntervClass +TempPopDensity + TempHouseholdDef  + bu_seroprevalence:decade "
+m212<- "year + tSur + zone + lat+ BloodScreened  + PolarFreq + TropicalClimate + RprolixusAMD2Prop + TdimidiatasADM1 + HouseIntervClass + RuralIndigenousPopSize2005  + TempHouseholdDef  + lon+ RprolixusAMD2Prop:lon+ ADM2_Tdimidiata_Density:HouseIntervClass + bu_seroprevalence:decade "
+m213<- "year + tSur + zone + lat+ BloodScreened  + PolarFreq:AridFreq + TropicalClimate + ADM2_Rprolixus_Density + TdimidiatasADM1 + HouseIntervClass   + TempHouseholdDef  +  RprolixusAMD2Prop:lon+ ADM2_Tdimidiata_Presence:HouseInterv + bu_seroprevalence:decade "
+m214<- "year + tSur + zone + lat+ BloodScreened  + PolarFreq + TropicalClimate + ADM2_Rprolixus_Density + TdimidiatasADM1 + HouseIntervClass   + TempHouseholdDef  +  RprolixusAMD2Prop:lon+ ADM2_Tdimidiata_Presence:HouseInterv + bu_seroprevalence:decade "
+m215 <-"year + tSur + IndiZone + lat+ BloodScreened  + PolarFreq + TropicalClimate + ADM2_Rprolixus_Presence +  ADM2_Tdimidiata_Presence+ HouseInterv +  TempPopDensity + TempHouseholdDef  + bu_seroprevalence:decade + BloodScreened:ADM2_Rprolixus_Density"
+m216 <-"year + tSur + IndiZone + lat+ BloodScreened  + PolarFreq + TropicalClimate + ADM2_Rprolixus_Presence +  ADM2_Tdimidiata_Density+ HouseInterv +  TempPopDensity + TempHouseholdDef  + bu_seroprevalence:decade + BloodScreened:ADM2_Rprolixus_Density"
+m217 <-"year + tSur + zone + lat+ bu_seroprevalence  + PolarFreq  + ADM2_Rprolixus_Density + TdimidiatasADM1 + HouseInterv + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef + BloodScreened + BloodScreened:decade"
+m218 <-"year + tSur + zone + lat+ bu_seroprevalence  + PolarFreq  + ADM2_Rprolixus_Density + ADM2_Tdimidiata_Presence + HouseInterv + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef + BloodScreened + BloodScreened:decade"
+m219 <-"year + tSur + zone + lat+ bu_seroprevalence * ADM2_Rprolixus_Density +  TempPopDensity :TempHouseholdDef + ADM2_Tdimidiata_Density:Intervention"
+m220 <-"year + tSur + zone + lat+ bu_seroprevalence * ADM2_Rprolixus_Density +  TempPopDensity :TempHouseholdDef + ADM2_Tdimidiata_Density:HouseIntervClass"
+m221<-"year + tSur + zone + lat+ BloodScreened * ADM2_Rprolixus_Density + TropicalFreq: PolarFreq + TdimidiatasADM1 + HouseIntervClass + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + AridFreq:InterventionIntensity + bu_seroprevalence:decade"
+m222<-"year + tSur + zone + lat+ BloodScreened * ADM2_Rprolixus_Density + TropicalFreq: PolarFreq + ADM2_Tdimidiata_Presence + HouseIntervClass + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + ADM2_Tdimidiata_Density:HouseInterv + bu_seroprevalence:decade"
+m223 <-"year + tSur + zone + lat+ bu_seroprevalence  + PolarFreq  + ADM2_Rprolixus_Density + TdimidiatasADM1 + HouseInterv + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + BloodScreened:decade"
+m224 <-"year + tSur + zone + lat+ bu_seroprevalence  + PolarFreq  + ADM2_Rprolixus_Density + ADM2_Tdimidiata_Presence + HouseInterv + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + BloodScreened:decade"
+m225 <-"year + tSur + zone + lat+ bu_seroprevalence  + PolarFreq  +TropicalClimate + RprolixusAMD2Prop + TdimidiatasADM1 + HouseInterv + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef + BloodScreened + BloodScreened:decade"
+m226 <-"year + tSur + zone + lat+ bu_seroprevalence  + PolarFreq   +TropicalClimate + RprolixusAMD2Prop + TdimidiatasADM1 + HouseInterv + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + BloodScreened:decade"
+m227 <-"year + tSur + zone + lat+ bu_seroprevalence  + PolarFreq  + TropicalClimate + ADM2_Rprolixus_Density + TdimidiatasADM1 + HouseInterv + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef + BloodScreened + BloodScreened:decade"
+m228 <-"year + tSur + zone + lat+ bu_seroprevalence  + PolarFreq   + TropicalClimate + ADM2_Rprolixus_Density + TdimidiatasADM1 + HouseInterv + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + BloodScreened:decade"
+m229 <-"year + tSur + zone + lat+ bu_seroprevalence  + PolarFreq  +TropicalClimate + RprolixusAMD2Prop + TdimidiatasADM1 + HouseInterv +  TempPopDensity + TempHouseholdDef + BloodScreened + BloodScreened:decade"
+m230<-"year + tSur + zone + lat+ BloodScreened  + PolarFreq + TropicalFreq + ADM2_Rprolixus_Density + ADM2_Tdimidiata_Presence + HouseIntervClass  + TempPopDensity + TempHouseholdDef  + lon"
+m231 <-"year + tSur + zone + lat+ bu_seroprevalence  + PolarFreq + RprolixusAMD2Prop + ADM2_Tdimidiata_Presence + HouseIntervClass + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef  + RprolixusAMD2Prop:lon +   TdimidiataAMD2Prop:HouseIntervClass"
+m232 <-"year + tSur + + IndiZone + UrbZone + lat+ bu_seroprevalence  + PolarFreq  + RprolixusAMD2Prop + ADM2_Tdimidiata_Presence + HouseInterv + RuralIndigenousPopSize2005 + TempPopDensity + TempHouseholdDef + BloodScreened + bu_seroprevalence:decade"
+
+
+
+predictorlist <- list(m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15, m16, m17, m18, m19, m20, m21, m22, m23, m24, m25, m26,m27, m28,m29, m30, m31, m32, m33, m34, m35, m36, m37, m38, m39, m40, m41, m42, m43, m44, m45, m46, m47, m48, m49, m50, m51, m52, m53, m54, m55, m56, m57, m58, m59, m60, m61, m62, m63, m64, m65, m66, m67, m68, m69, m70, m71, m72, m73, m74, m75, m76, m77,m78, m79,m80, m81, m82, m83, m84, m85, m86, m87,m88,m89, m90,m91, m92, m93,m94,m95,m96,m97,m98,m99,m100,m101,m102,m103,m104, m105, m106, m107, m108,m109, m110, m111, m112, m113, m114, m115, m116, m117, m118, m119, m120, m121, m122, m123, m124, m125, m126, m127, m128, m129, m130, m131, m132, m133, m134, m135, m136, m137, m138, m139, m140, m141, m142, m143, m144, m145, m146, m147, m148, m149, m150, m151, m152, m153, m154, m155, m156, m157, m158, m159, m160, m161, m162, m163,m164,m165,m166, m167, m168, m169, m170, m171, m172, m173, m174, m175, m176,m177, m178,m179,m180,m181, m182,m183,m184,m185,m186,m187,m188,m189, m190,m191, m192,m193, m194,m195,m196,m197,m198,m199,m200,m201, m202,m203,m204,m205,m206,m207,m208,m209,m210,m211,m212,m213,m214, m215,m216,m217,m218,m219,m220,m221,m222,m223,m224, m225, m226, m227, m228, m229, m230,m231, m232)
+
+names(predictorlist) <- paste0('m',1:length(predictorlist))
+rm(list=paste0('m',1:length(predictorlist)))
+
+
+for(i in 1:length(predictorlist)){
+  predictorlist[[paste0(names(predictorlist)[i],'b')]] <- gsub(pattern = 'tSur',
+                                                               replacement = '',
+                                                               x = predictorlist[[i]])
+}
+
+
+models <- data.frame( k=rep(NA,length(predictorlist)), 
+                      Adj_Rsquare= NA,
+                      R_square_pred_FoI=NA, 
+                      logL=NA, 
+                      AICR=NA, 
+                      AIC=NA,
+                      AICc=NA, 
+                      modelID=NA,  
+                      R_square_pred_indi=NA, 
+                      R_square_pred_Urb=NA, 
+                      R_square_pred_Rur=NA)
+
+```
+
+
+run each model on full dataset
+
+```{r}
+
+# for (i in 1:length(predictorlist)){
+# 
+#   mod <- lm(paste("logFoIMed~", predictorlist[[i]]) ,data=FoI_ADM2)
+#   # mod2 <- .lm.fit(paste("logFoIMed~", predictorlist[[i]]) ,data=FoI_ADM2)
+# }
+# 
+# for (i in 1:length(predictorlist)){
+#  
+#   ff <- as.formula( paste0("logFoIMed~", predictorlist[[i]]))
+#   m <- model.frame(ff, FoI_ADM2)
+#   mm <- model.matrix(ff,m) # cbind(1, log(trees$Girth))   # model matrix
+# 
+#   ## bare-bones direct interface
+#   # flm <- fastLmPure(X = mm, y = FoI_ADM2$logFoIMed)
+#   flm <- .lm.fit(x = mm, y = FoI_ADM2$logFoIMed)
+#   # flm <- fastLmPure(X = mm, y = FoI_ADM2$logFoIMed)
+# }
+
+for (i in 1:length(predictorlist)){
+ 
+  ff <- as.formula( paste0("logFoIMed~", predictorlist[[i]]))
+  m <- model.frame(ff, FoI_ADM2)
+  mm <- model.matrix(ff,m) # cbind(1, log(trees$Girth))   # model matrix
+
+  ## bare-bones direct interface
+  flm <- fastLmPure(X = mm, y = FoI_ADM2$logFoIMed)
+
+  #Prediction on raw data
+  beta_t <- as.vector(flm$coefficients)
+  kt <- sum(!is.na(beta_t))
+  # beta_t[is.na(beta_t)] <- 0
+  # design_Xt <- model.matrix(mod, data=FoI_ADM2)
+  
+  logFoI_pred <- flm$fitted.values
+  
+  FoI_pred <- exp(logFoI_pred )
+  FoI_ADM2$FoI_pred <- FoI_pred
+  #predicted R_square
+  R_square_pred_FoI_t = 1 - (sum ((  FoI_ADM2$FoI_Med - FoI_ADM2$FoI_pred)^2)/
+                               sum (( FoI_ADM2$FoI_Med - mean( FoI_ADM2$FoI_Med) )^2)  )
+  
+  R_square_pred_logFoI_t = 1 - (sum ((  FoI_ADM2$logFoIMed - log(FoI_ADM2$FoI_pred))^2)/
+                               sum (( FoI_ADM2$logFoIMed - mean( FoI_ADM2$logFoIMed) )^2)  )
+  
+  #AIC calculation
+  residual_std_alt <-  sqrt(sum(((FoI_ADM2$FoI_Med - FoI_ADM2$FoI_pred) - 
+                                   mean(FoI_ADM2$FoI_Med - FoI_ADM2$FoI_pred) )^2)/n)
+  
+  logLt <- sum(dnorm(x = FoI_ADM2$FoI_Med, 
+                     mean = FoI_ADM2$FoI_pred, 
+                     sd = residual_std_alt, log = TRUE))
+  
+  aic <- 2*(kt+1) - 2*logLt
+  
+  #AICc for small sample size
+  
+  aicct <- aic + (2*kt*(kt+1))/(n-kt-1)
+  
+  
+  
+  ##R_square by zone
+  
+  indi <- subset(FoI_ADM2, FoI_ADM2$zone == "indigenous")
+  rural <- subset(FoI_ADM2, FoI_ADM2$zone == "rural")
+  urban <- subset(FoI_ADM2, FoI_ADM2$zone == "urban")
+  
+  R_square_pred_indi_t = 1 - (sum ((   indi$FoI_Med -  indi$FoI_pred)^2)/
+                                sum (( indi$FoI_Med - mean( FoI_ADM2$FoI_Med) )^2)  )
+  
+  R_square_pred_Urb_t = 1 - (sum ((   urban$FoI_Med -  urban$FoI_pred)^2)/
+                               sum (( urban$FoI_Med - mean( FoI_ADM2$FoI_Med) )^2)  )
+  
+  R_square_pred_Rur_t = 1 - (sum ((   rural$FoI_Med -  rural$FoI_pred)^2)/
+                               sum (( rural$FoI_Med - mean( FoI_ADM2$FoI_Med) )^2)  )
+  
+  
+  
+  models[i,] <- c(  kt, R_square_pred_logFoI_t ,  R_square_pred_FoI_t, 
+                    logLt, NA , aic, aicct, i, R_square_pred_indi_t,
+                    R_square_pred_Urb_t,  R_square_pred_Rur_t)
+}
+
+# models2 <- models[2:nrow(models),1:ncol(models)]
+models$ModelID2 <- as.character(paste("model", as.numeric(row.names(models))-1))
+
+
+```
+
+
+save
+
+
+```{r}
+
+# save from previous
+# Obs_dist_foi <- matrix(NA,nrow(FoI_ADM2),1e3)
+# for(i in 1:nrow(FoI_ADM2)){
+#   Obs_dist_foi[i,] <- rgamma(n = 1e3,
+#                              shape = FoI_ADM2$shape[i],scale = FoI_ADM2$scale[i])
+# }
+
+# f <- which(d$FoI_ADM2$year<1950)
+# saveRDS(object =list(FoI_ADM2 = FoI_ADM2[-f,], 
+#                      models = models,
+#                      predictorlist = predictorlist,
+#                      obs_dist = Obs_dist_foi[-f,]), 
+#         file = 'Rdata/All_models_input.rds')
+
+
+saveRDS(object =list(FoI_ADM2 = FoI_ADM2, 
+                     models = models,
+                     predictorlist = predictorlist,
+                     obs_dist = Obs_dist_foi), 
+        file = 'Rdata/All_models_input.rds')
+
+
+
+# d <- readRDS('Rdata/All_models_input.rds')
+# 
+# plot(d$FoI_ADM2$year[d$FoI_ADM2$year>=1950],d$FoI_ADM2$decade[d$FoI_ADM2$year>=1950])
+# dim(d$obs_dist)
+
+
+```
+
+

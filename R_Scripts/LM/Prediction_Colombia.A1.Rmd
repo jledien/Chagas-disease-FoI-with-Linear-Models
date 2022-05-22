@@ -1,0 +1,190 @@
+---
+title: "Final Model selection and bootstrap FOI posterior LR"
+author: "Julia Ledien"
+date: "2 January 2020"
+output: html_document
+---
+
+
+```{r, include = FALSE, message = FALSE, warning = FALSE, error = FALSE}
+library(knitr)
+library(mgcv)
+library(microbenchmark)
+library(Rcpp)
+library(RcppArmadillo)
+library(RcppEigen)
+library(dplyr)
+
+opts_chunk$set(collapse = TRUE)
+
+opts_chunk$set(fig.path='figs/A1/',
+               fig.keep='high', 
+               dev=c('png'), fig.width=6, fig.height=6, cache=FALSE,
+               tidy=FALSE, warning=FALSE, fig.show="asis"
+)
+
+memory.limit(2*memory.limit())
+source('Rscript/FUN_ADM2_Predictors.R')
+
+```
+
+
+# load predictor matrix
+
+```{r}
+Predictors <- readRDS( "../predictions/predictors_ADM2")
+
+
+```
+
+
+# load model results
+
+```{r}
+load('../approach1_2_3/Rdata/A1_perf_all_run.RData')
+sourceCpp("../approach1_2_3/Rscript/MatrixMult.cpp")
+
+```
+
+# make predictions
+
+```{r}
+# n_average
+t_sur <- 2010
+Years <- c(1980, 1990, 2000, 2010)
+
+Y_pred_colombia <- list()
+Y_pred_colombia_sum <- list()
+
+for (year in Years){
+   print(year)
+  
+    Y_pred_colombia[[as.character(year)]] <- list()
+    Y_pred_colombia_sum[[as.character(year)]] <- list()
+
+  for (zone in 1:length(zone_unique)){
+    # zone=1
+    
+    pred_mat <- ADM2_Predictors_AllADM2(year = year,
+                                        tSur = t_sur,
+                                        zone = zone_unique[zone],
+                                        Predictors = Predictors)
+    
+    pred_mat$logFoIMed <- 1
+    
+   
+    Y_pred_colombia[[as.character(year)]][[zone_unique[zone]]] <- list()
+    Y_pred_colombia_sum[[as.character(year)]][[zone_unique[zone]]] <- list()
+
+    for (rank_model in 1:n_average){
+      # rank_model = 1
+      
+      model_id <- best[[zone]][rank_model]
+      
+      ff <- as.formula( paste0("logFoIMed~", d$predictorlist[[model_id]]))
+      # # old
+      m0 <- model.frame(ff, d$FoI_ADM2)
+      mm0 <- model.matrix(ff,m0) # cbind(1, log(trees$Girth))   # model matrix
+      
+      # new
+      m <- model.frame(ff, pred_mat)
+      mm <- model.matrix(ff,m)
+      
+      Betas <- res1[[model_id]]$Betas
+      # check
+      if(!identical(x = colnames(Betas), y = colnames(mm))) break
+      if(!identical(x = colnames(Betas), y = colnames(mm0))) break
+      
+      Y <-  exp(armaMatMult(A = mm, B = t(Betas)))
+      Y <- Y[1:1065,]
+      
+      Y_pred_colombia[[as.character(year)]][[zone]][[rank_model]] <- Y
+      
+      Y_pred_colombia_sum[[as.character(year)]][[zone]][[rank_model]] <- 
+        cbind(as.data.frame(t(apply(Y,1,quantile,c(.5,.25,.75,.025,.975)))),
+              mean = apply(Y,1,mean), CV = apply(Y,1,sd)/apply(Y,1,mean) )
+                              
+    }
+    
+  }
+}
+
+
+# 
+# ```
+# 
+# # check a few predictions
+# 
+# ```{r,eval=FALSE}
+# 
+# # works with t_sur = 1998
+# # year=1998
+# 
+# temp1 <- Y_pred_sum[[2]][[1]]
+# 
+# temp2 <- Y_pred_colombia_sum[[2]][[1]]
+# 
+# d$FoI_ADM2[75,]
+# 
+# which(pred_mat$GID_2_GDAM == 'COL.6.40_1')
+# 
+# temp1[,75]
+# temp2[,which(pred_mat$GID_2_GDAM == 'COL.6.40_1')]
+# 
+# ```
+# 
+# # model averging
+# 
+# ```{r}
+# # load('Rdata/A1_pred.RData')
+
+# n_total <- 5e3
+# model_weight <- matrix(NA,n_average,length(zone_unique))
+# model_choice <- matrix(NA,n_total,length(zone_unique))
+# model_iteration <- matrix(NA,n_total,length(zone_unique))
+# 
+# for(i in 1:length(zone_unique)){
+#   model_weight[,i] <- performance_all[best[[i]][1:n_average],2+i]/
+#     sum(performance_all[best[[i]][1:n_average],2+i])
+#   
+#   model_choice[,i] <- sort(sample(x = 1:n_average,size = n_total,
+#                              replace = TRUE,prob = model_weight[,i]))
+#   model_iteration[,i] <- sample(x = 1:n_boot,size = n_total,
+#                              replace = TRUE)
+# }
+
+Y_pred_colombia_MA <- list()
+Y_pred_colombia_sum_MA <- list()
+
+for (year in Years){
+  
+  
+  Y_pred_colombia_MA[[as.character(year)]] <- list()
+  Y_pred_colombia_sum_MA[[as.character(year)]] <- list()
+  
+  for (zone in 1:length(zone_unique)){
+    
+    Y <- matrix(NA,1065,n_total)
+    
+    for(i in 1:n_total){
+      Y[,i] <-
+        Y_pred_colombia[[as.character(year)]][[zone]][[model_choice[i,zone]]][,model_iteration[i,zone]]
+    }
+    Y_pred_colombia_MA[[as.character(year)]][[zone_unique[zone]]] <- Y
+    
+    Y_pred_colombia_sum_MA[[as.character(year)]][[zone_unique[zone]]] <-  cbind(as.data.frame(t(apply(
+      Y,1,quantile,c(.5,.25,.75,.025,.975)))),
+      mean = apply(Y,1,mean), CV = apply(Y,1,sd)/apply(Y,1,mean),
+      CV_MAD = median(abs(apply(Y,1,median)))/apply(Y,1,median)*1/qnorm(0.75)
+      ) # https://www.tandfonline.com/doi/abs/10.1080/01621459.1993.10476408
+  }
+}
+  
+# save.image('Rdata/A1_pred.RData')
+  
+saveRDS(object = list(Y_pred_colombia_sum_MA = Y_pred_colombia_sum_MA,
+                      zone_unique = zone_unique,
+                      Years = Years,
+                      pred_mat = pred_mat),
+        file = 'Rdata/A1_pred.rds')
+```
